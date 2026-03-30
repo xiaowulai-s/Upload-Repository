@@ -1,0 +1,107 @@
+# GitHub Repository Sync Tool
+
+A powerful GitHub repository synchronization tool built with Python, featuring both GUI and CLI interfaces for seamless repository management.
+
+## Version
+1.0.0
+
+## Features
+
+### Core Functionality
+- Bind local folders to GitHub repositories
+- Pull and push code with a single click
+- Automated changelog generation and synchronization
+- Support for multiple repositories management
+- Git operations encapsulation with async support
+
+### Architecture
+- **Presentation Layer**: PySide6 GUI + Click CLI
+- **Business Layer**: Service-oriented design
+- **Core Layer**: Git operations engine, log generation, repository management
+- **Data Layer**: SQLite database for repository configuration
+
+### GUI Interface
+- Modern, user-friendly interface
+- Real-time operation status updates
+- Asynchronous operations to prevent freezing
+- Repository management dashboard
+
+### CLI Interface
+- Comprehensive command-line commands
+- Support for all core functionalities
+- Easy integration with scripts and workflows
+
+## Installation
+
+### Prerequisites
+- Python 3.8+
+- Git installed and configured
+
+### Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+## Usage
+
+### GUI Mode
+```bash
+python -m src.ui.main
+```
+
+### CLI Mode
+```bash
+# Show help
+python -m src.cli --help
+
+# Bind a local folder to a repository
+python -m src.cli bind --folder /path/to/folder --remote https://github.com/user/repo.git
+
+# Pull changes from remote
+python -m src.cli pull --repo-id <repo-id>
+
+# Push changes to remote
+python -m src.cli push --repo-id <repo-id> --message "Your commit message"
+
+# Generate changelog
+python -m src.cli changelog --repo-id <repo-id>
+```
+
+## Project Structure
+
+```
+.
+├── src/
+│   ├── cli/                  # Command-line interface
+│   ├── core/                 # Core functionality (Git engine, log generation)
+│   ├── data/                 # Data layer (database, models)
+│   ├── services/             # Business logic services
+│   └── ui/                   # GUI implementation
+├── tests/                    # Test suite
+├── requirements.txt          # Project dependencies
+└── README.md                 # This file
+```
+
+## Configuration
+
+The tool uses SQLite database to store repository configurations. The database file is automatically created at `~/.github_sync_tool.db`.
+
+## Logging
+
+All operations are logged to `~/.github_sync_tool.log` with detailed information about each operation.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+MIT License
+
+## Authors
+
+- xiaowulai-s
+
+## GitHub Repository
+
+https://github.com/xiaowulai-s/Upload-Repository.git
