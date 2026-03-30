@@ -57,10 +57,10 @@ build = [
 ]
 
 [project.scripts]
-git-sync = "src.cli.main:main"
+git-sync = "src.main:main"
 
 [project.gui-scripts]
-git-sync-gui = "src.ui.main_window:main"
+git-sync-gui = "src.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

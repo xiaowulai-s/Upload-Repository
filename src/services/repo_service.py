@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime
 import shutil
 
+from ..utils.logger import logger
 from ..models.repository import Repository, RepoStatus, SyncRecord, SyncStatus
 from ..data.database import Database
 from ..data.config_manager import ConfigManager
@@ -40,12 +41,15 @@ class RepoService:
         remote_url: Optional[str] = None
     ) -> Repository:
         folder_path = Path(folder_path)
+        logger.debug(f"Binding local folder {folder_path} with name {name}")
         
         if not folder_path.exists():
+            logger.error(f"Cannot bind folder, {folder_path} does not exist")
             raise ValidationError(f"文件夹不存在: {folder_path}")
         
         existing = self.db.get_repository_by_path(str(folder_path))
         if existing:
+            logger.warning(f"Folder {folder_path} is already bound to repository {existing.id}")
             raise RepositoryExistsError(f"该文件夹已绑定: {existing.id}")
         
         if name is None:
@@ -71,16 +75,22 @@ class RepoService:
         
         self.db.insert_repository(repo)
         
+        logger.info(f"Successfully bound folder {folder_path} to repository {repo.id}")
+        logger.audit(user="system", action="bind_folder", repo_id=repo.id, details=f"name: {name}, path: {folder_path}")
+        
         return repo
 
     async def init_repository(self, repo_id: str) -> Result:
+        logger.debug(f"Initializing repository {repo_id}")
         repo = self.db.get_repository(repo_id)
         if not repo:
+            logger.error(f"Cannot initialize repository, {repo_id} does not exist")
             raise RepositoryNotFoundError(f"仓库不存在: {repo_id}")
         
         git_engine = GitEngine(Path(repo.local_path))
         
         if git_engine.is_git_repo:
+            logger.info(f"Repository {repo_id} is already initialized")
             return Result.ok("仓库已初始化")
         
         result = git_engine.init()
@@ -89,6 +99,10 @@ class RepoService:
             repo.status = RepoStatus.INITIALIZED
             self.db.update_repository(repo)
             self._git_engines[repo_id] = git_engine
+            logger.info(f"Successfully initialized repository {repo_id}")
+            logger.audit(user="system", action="init_repository", repo_id=repo_id, details="Repository initialized")
+        else:
+            logger.error(f"Failed to initialize repository {repo_id}: {result.error}")
         
         return result
 
@@ -100,14 +114,17 @@ class RepoService:
         branch: Optional[str] = None
     ) -> Repository:
         target_path = Path(target_path)
+        logger.debug(f"Cloning repository from {url} to {target_path} branch {branch}")
         
         if target_path.exists() and any(target_path.iterdir()):
+            logger.error(f"Cannot clone, target directory {target_path} is not empty")
             raise ValidationError(f"目标目录不为空: {target_path}")
         
         git_engine = GitEngine(target_path)
         result = await git_engine.clone(url, branch)
         
         if not result.success:
+            logger.error(f"Failed to clone repository from {url} to {target_path}: {result.error}")
             raise GitOperationError(result.error)
         
         if name is None:
@@ -130,6 +147,9 @@ class RepoService:
         self.db.insert_repository(repo)
         self._git_engines[repo.id] = git_engine
         
+        logger.info(f"Successfully cloned repository from {url} to {target_path}, repository ID: {repo.id}")
+        logger.audit(user="system", action="clone_repository", repo_id=repo.id, details=f"url: {url}, branch: {branch}")
+        
         return repo
 
     def get_repository(self, repo_id: str) -> Optional[Repository]:
@@ -139,19 +159,29 @@ class RepoService:
         return self.db.get_all_repositories()
 
     def remove_repository(self, repo_id: str, delete_local: bool = False) -> bool:
+        logger.debug(f"Removing repository {repo_id}, delete_local: {delete_local}")
         repo = self.db.get_repository(repo_id)
         if not repo:
+            logger.error(f"Cannot remove repository, {repo_id} does not exist")
             raise RepositoryNotFoundError(f"仓库不存在: {repo_id}")
         
-        if delete_local:
-            local_path = Path(repo.local_path)
-            if local_path.exists():
-                shutil.rmtree(local_path)
+        local_path = Path(repo.local_path)
+        if delete_local and local_path.exists():
+            logger.warning(f"Deleting local files at {local_path} for repository {repo_id}")
+            shutil.rmtree(local_path)
         
         if repo_id in self._git_engines:
             del self._git_engines[repo_id]
+            logger.debug(f"Removed git engine for repository {repo_id}")
         
-        return self.db.delete_repository(repo_id)
+        result = self.db.delete_repository(repo_id)
+        if result:
+            logger.info(f"Successfully removed repository {repo_id}")
+            logger.audit(user="system", action="remove_repository", repo_id=repo_id, details=f"delete_local: {delete_local}")
+        else:
+            logger.error(f"Failed to remove repository {repo_id} from database")
+        
+        return result
 
     async def get_repo_status(self, repo_id: str) -> Dict[str, Any]:
         repo = self.db.get_repository(repo_id)

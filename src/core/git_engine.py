@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import os
 
+from ..utils.logger import logger
 from ..models.repository import GitStatus, FileDiff, CommitInfo, ChangeType
 
 
@@ -62,7 +63,9 @@ class GitEngine:
         return process.returncode, stdout.decode('utf-8', errors='replace'), stderr.decode('utf-8', errors='replace')
 
     def init(self) -> Result:
+        logger.debug(f"Initializing git repository at {self.repo_path}")
         if self.is_git_repo:
+            logger.info(f"Repository already initialized at {self.repo_path}")
             return Result.ok("Already a git repository")
         
         try:
@@ -72,12 +75,16 @@ class GitEngine:
                 check=True,
                 capture_output=True
             )
+            logger.info(f"Repository initialized successfully at {self.repo_path}")
             return Result.ok("Repository initialized")
         except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to initialize repository at {self.repo_path}: {e.stderr.decode()}")
             return Result.error(f"Init failed: {e.stderr.decode()}")
 
     async def clone(self, url: str, branch: Optional[str] = None) -> Result:
+        logger.debug(f"Cloning repository from {url} to {self.repo_path}")
         if self.repo_path.exists() and any(self.repo_path.iterdir()):
+            logger.warning(f"Directory {self.repo_path} is not empty, cannot clone")
             return Result.error("Directory is not empty")
         
         self.repo_path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,10 +103,13 @@ class GitEngine:
             _, stderr = await process.communicate()
             
             if process.returncode == 0:
+                logger.info(f"Repository cloned successfully from {url} to {self.repo_path}")
                 return Result.ok("Repository cloned")
             else:
+                logger.error(f"Failed to clone repository from {url} to {self.repo_path}: {stderr.decode()}")
                 return Result.error(f"Clone failed: {stderr.decode()}")
         except Exception as e:
+            logger.error(f"Exception occurred while cloning repository: {str(e)}")
             return Result.error(f"Clone failed: {str(e)}")
 
     async def get_status(self) -> Result:
@@ -180,10 +190,13 @@ class GitEngine:
             return Result.error(f"Add failed: {stderr}")
 
     async def commit(self, message: str, author: Optional[str] = None) -> Result:
+        logger.debug(f"Committing changes to {self.repo_path} with message: {message[:50]}...")
         if not self.is_git_repo:
+            logger.error(f"Cannot commit, {self.repo_path} is not a git repository")
             return Result.error("Not a git repository")
         
         if not message or not message.strip():
+            logger.error("Cannot commit with empty message")
             return Result.error("Commit message cannot be empty")
         
         args = ["commit", "-m", message]
@@ -194,13 +207,14 @@ class GitEngine:
         
         if returncode == 0:
             hash_result = await self._run_git_command("rev-parse", "HEAD")
-            if hash_result[0] == 0:
-                commit_hash = hash_result[1].strip()
-                return Result.ok({"hash": commit_hash, "message": message})
-            return Result.ok({"hash": None, "message": message})
+            commit_hash = hash_result[1].strip() if hash_result[0] == 0 else None
+            logger.info(f"Successfully committed to {self.repo_path} with hash: {commit_hash}")
+            return Result.ok({"hash": commit_hash, "message": message})
         else:
             if "nothing to commit" in stderr:
+                logger.info(f"Nothing to commit in {self.repo_path}")
                 return Result.ok({"hash": None, "message": "Nothing to commit"})
+            logger.error(f"Failed to commit to {self.repo_path}: {stderr}")
             return Result.error(f"Commit failed: {stderr}")
 
     async def pull(
@@ -208,7 +222,9 @@ class GitEngine:
         remote: str = "origin", 
         branch: Optional[str] = None
     ) -> Result:
+        logger.debug(f"Pulling from remote {remote} branch {branch} to {self.repo_path}")
         if not self.is_git_repo:
+            logger.error(f"Cannot pull, {self.repo_path} is not a git repository")
             return Result.error("Not a git repository")
         
         args = ["pull", remote]
@@ -218,12 +234,15 @@ class GitEngine:
         returncode, stdout, stderr = await self._run_git_command(*args)
         
         if returncode == 0:
+            logger.info(f"Successfully pulled from {remote} to {self.repo_path}")
             return Result.ok({
                 "output": stdout,
                 "message": "Pull successful"
             })
         else:
+            logger.error(f"Failed to pull from {remote} to {self.repo_path}: {stderr}")
             if "CONFLICT" in stderr:
+                logger.warning(f"Merge conflict detected during pull from {remote} to {self.repo_path}")
                 return Result.error(f"Merge conflict: {stderr}")
             return Result.error(f"Pull failed: {stderr}")
 
@@ -233,7 +252,9 @@ class GitEngine:
         branch: Optional[str] = None,
         set_upstream: bool = False
     ) -> Result:
+        logger.debug(f"Pushing to remote {remote} branch {branch} from {self.repo_path}")
         if not self.is_git_repo:
+            logger.error(f"Cannot push, {self.repo_path} is not a git repository")
             return Result.error("Not a git repository")
         
         args = ["push", remote]
@@ -245,22 +266,28 @@ class GitEngine:
         returncode, stdout, stderr = await self._run_git_command(*args)
         
         if returncode == 0:
+            logger.info(f"Successfully pushed to {remote} from {self.repo_path}")
             return Result.ok({
                 "output": stdout,
                 "message": "Push successful"
             })
         else:
+            logger.error(f"Failed to push to {remote} from {self.repo_path}: {stderr}")
             return Result.error(f"Push failed: {stderr}")
 
     async def fetch(self, remote: str = "origin") -> Result:
+        logger.debug(f"Fetching from remote {remote} to {self.repo_path}")
         if not self.is_git_repo:
+            logger.error(f"Cannot fetch, {self.repo_path} is not a git repository")
             return Result.error("Not a git repository")
         
         returncode, stdout, stderr = await self._run_git_command("fetch", remote)
         
         if returncode == 0:
+            logger.info(f"Successfully fetched from {remote} to {self.repo_path}")
             return Result.ok("Fetch successful")
         else:
+            logger.error(f"Failed to fetch from {remote} to {self.repo_path}: {stderr}")
             return Result.error(f"Fetch failed: {stderr}")
 
     async def get_current_branch(self) -> Result:

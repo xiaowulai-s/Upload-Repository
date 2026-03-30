@@ -316,3 +316,69 @@ class GitService:
             raise GitOperationError("不是有效的 Git 仓库")
         
         return await git_engine.reset(ref, mode)
+    
+    async def get_current_branch(self, repo_id: str) -> str:
+        """获取当前分支"""
+        repo = self.db.get_repository(repo_id)
+        if not repo:
+            raise RepositoryNotFoundError(f"仓库不存在: {repo_id}")
+        
+        git_engine = self._get_git_engine(repo_id)
+        if not git_engine or not git_engine.is_git_repo:
+            raise GitOperationError("不是有效的 Git 仓库")
+        
+        result = await git_engine.get_current_branch()
+        if result.success:
+            return result.data
+        raise GitOperationError(result.error)
+    
+    async def get_branches(self, repo_id: str) -> List[Dict[str, Any]]:
+        """获取所有分支"""
+        repo = self.db.get_repository(repo_id)
+        if not repo:
+            raise RepositoryNotFoundError(f"仓库不存在: {repo_id}")
+        
+        git_engine = self._get_git_engine(repo_id)
+        if not git_engine or not git_engine.is_git_repo:
+            raise GitOperationError("不是有效的 Git 仓库")
+        
+        result = await git_engine.get_branches()
+        if result.success:
+            return result.data
+        raise GitOperationError(result.error)
+    
+    async def create_branch(self, repo_id: str, branch_name: str) -> str:
+        """创建新分支"""
+        repo = self.db.get_repository(repo_id)
+        if not repo:
+            raise RepositoryNotFoundError(f"仓库不存在: {repo_id}")
+        
+        git_engine = self._get_git_engine(repo_id)
+        if not git_engine or not git_engine.is_git_repo:
+            raise GitOperationError("不是有效的 Git 仓库")
+        
+        result = await git_engine.create_branch(branch_name)
+        if result.success:
+            # 更新仓库当前分支
+            repo.branch = branch_name
+            self.db.update_repository(repo)
+            return result.data
+        raise GitOperationError(result.error)
+    
+    async def switch_branch(self, repo_id: str, branch_name: str) -> str:
+        """切换分支"""
+        repo = self.db.get_repository(repo_id)
+        if not repo:
+            raise RepositoryNotFoundError(f"仓库不存在: {repo_id}")
+        
+        git_engine = self._get_git_engine(repo_id)
+        if not git_engine or not git_engine.is_git_repo:
+            raise GitOperationError("不是有效的 Git 仓库")
+        
+        result = await git_engine.switch_branch(branch_name)
+        if result.success:
+            # 更新仓库当前分支
+            repo.branch = branch_name
+            self.db.update_repository(repo)
+            return result.data
+        raise GitOperationError(result.error)

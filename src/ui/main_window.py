@@ -10,13 +10,14 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStatusBar, QTreeWidget, QTreeWidgetItem,
     QSplitter, QTabWidget, QMessageBox, QFileDialog, QInputDialog,
-    QTextEdit, QProgressBar
+    QTextEdit, QProgressBar, QLineEdit
 )
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QActionGroup
 
 from ..services.repo_service import RepoService
 from ..services.git_service import GitService
+from ..services.schedule_service import ScheduleService
 from ..models.repository import Repository, RepoStatus, SyncStatus
 
 
@@ -52,17 +53,26 @@ class MainWindow(QMainWindow):
         
         self.repo_service = RepoService()
         self.git_service = GitService()
+        self.schedule_service = ScheduleService()  # 添加定时任务服务
         self.current_repo: Optional[Repository] = None
         self._workers = []  # 用于跟踪所有运行的线程
         
         self._init_ui()
         self._load_repositories()
+        
+        # 启动定时任务服务和自动同步
+        self.schedule_service.start()
+        self.schedule_service.start_auto_sync()
     
     def closeEvent(self, event):
-        """窗口关闭时停止所有运行的线程"""
+        """窗口关闭时停止所有运行的线程和服务"""
         for worker in self._workers:
             if worker.isRunning():
                 worker.stop()
+        
+        # 停止定时任务服务
+        self.schedule_service.stop()
+        
         event.accept()
     
     def _add_worker(self, worker):
@@ -98,6 +108,46 @@ class MainWindow(QMainWindow):
         splitter.setSizes([300, 900])
         
         self._create_status_bar()
+        self._create_menu_bar()  # 创建菜单栏，用于主题切换
+    
+    def _create_menu_bar(self):
+        """创建菜单栏"""
+        from ..utils.theme_manager import ThemeType, ThemeManager
+        
+        menu_bar = self.menuBar()
+        
+        # 主题菜单
+        theme_menu = menu_bar.addMenu("主题")
+        
+        # 主题选项
+        self.light_action = theme_menu.addAction("亮色主题")
+        self.light_action.triggered.connect(lambda: self.theme_manager.set_theme(ThemeType.LIGHT))
+        self.light_action.setCheckable(True)
+        
+        self.dark_action = theme_menu.addAction("暗色主题")
+        self.dark_action.triggered.connect(lambda: self.theme_manager.set_theme(ThemeType.DARK))
+        self.dark_action.setCheckable(True)
+        
+        self.system_action = theme_menu.addAction("系统主题")
+        self.system_action.triggered.connect(lambda: self.theme_manager.set_theme(ThemeType.SYSTEM))
+        self.system_action.setCheckable(True)
+        
+        # 单选组
+        theme_group = QActionGroup(self)
+        theme_group.addAction(self.light_action)
+        theme_group.addAction(self.dark_action)
+        theme_group.addAction(self.system_action)
+        theme_group.setExclusive(True)
+        
+        # 设置当前主题的选中状态 - 只有当theme_manager被赋值后才执行
+        if hasattr(self, 'theme_manager'):
+            current_theme = self.theme_manager.get_current_theme()
+            if current_theme == ThemeType.LIGHT:
+                self.light_action.setChecked(True)
+            elif current_theme == ThemeType.DARK:
+                self.dark_action.setChecked(True)
+            else:
+                self.system_action.setChecked(True)
     
     def _create_left_panel(self) -> QWidget:
         panel = QWidget()
@@ -138,6 +188,9 @@ class MainWindow(QMainWindow):
         
         file_tab = self._create_file_tab()
         self.tabs.addTab(file_tab, "文件状态")
+        
+        branch_tab = self._create_branch_tab()  # 添加分支管理标签页
+        self.tabs.addTab(branch_tab, "分支管理")
         
         history_tab = self._create_history_tab()
         self.tabs.addTab(history_tab, "同步历史")
@@ -206,6 +259,67 @@ class MainWindow(QMainWindow):
         
         return tab
     
+    def _create_branch_tab(self) -> QWidget:
+        """创建分支管理标签页"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # 标题
+        label = QLabel("分支管理")
+        label.setFont(QFont("Arial", 11, QFont.Bold))
+        layout.addWidget(label)
+        
+        # 分支列表
+        self.branch_tree = QTreeWidget()
+        self.branch_tree.setHeaderLabels(["分支名称", "状态", "类型"])
+        self.branch_tree.itemDoubleClicked.connect(self._on_branch_double_clicked)
+        layout.addWidget(self.branch_tree)
+        
+        # 当前分支信息
+        branch_info_layout = QHBoxLayout()
+        branch_info_label = QLabel("当前分支:")
+        branch_info_layout.addWidget(branch_info_label)
+        
+        self.current_branch_label = QLabel("- 未选择 -", styleSheet="font-weight: bold;")
+        branch_info_layout.addWidget(self.current_branch_label)
+        branch_info_layout.addStretch()
+        layout.addLayout(branch_info_layout)
+        
+        # 创建分支区域
+        create_branch_layout = QHBoxLayout()
+        
+        branch_name_label = QLabel("新分支名称:")
+        create_branch_layout.addWidget(branch_name_label)
+        
+        self.new_branch_edit = QLineEdit()
+        self.new_branch_edit.setPlaceholderText("输入新分支名称...")
+        create_branch_layout.addWidget(self.new_branch_edit)
+        
+        self.btn_create_branch = QPushButton("创建分支")
+        self.btn_create_branch.clicked.connect(self._create_branch)
+        self.btn_create_branch.setEnabled(False)
+        create_branch_layout.addWidget(self.btn_create_branch)
+        
+        layout.addLayout(create_branch_layout)
+        
+        # 操作按钮
+        btn_layout = QHBoxLayout()
+        
+        self.btn_switch_branch = QPushButton("切换分支")
+        self.btn_switch_branch.clicked.connect(self._switch_branch)
+        self.btn_switch_branch.setEnabled(False)
+        btn_layout.addWidget(self.btn_switch_branch)
+        
+        self.btn_refresh_branches = QPushButton("刷新分支")
+        self.btn_refresh_branches.clicked.connect(self._refresh_branches)
+        self.btn_refresh_branches.setEnabled(False)
+        btn_layout.addWidget(self.btn_refresh_branches)
+        
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+        
+        return tab
+    
     def _create_status_bar(self):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -232,8 +346,14 @@ class MainWindow(QMainWindow):
             self.btn_push.setEnabled(True)
             self.btn_sync.setEnabled(True)
             self.btn_commit.setEnabled(True)
+            # 分支管理相关按钮启用
+            self.btn_create_branch.setEnabled(True)
+            self.btn_switch_branch.setEnabled(True)
+            self.btn_refresh_branches.setEnabled(True)
+            # 加载数据
             self._load_repo_status()
             self._load_history()
+            self._load_branches()  # 加载分支列表
     
     def _load_repo_status(self):
         if not self.current_repo:
@@ -256,6 +376,116 @@ class MainWindow(QMainWindow):
         worker.error.connect(on_error)
         self._add_worker(worker)
         worker.start()
+    
+    def _load_branches(self):
+        """加载分支列表"""
+        if not self.current_repo:
+            return
+        
+        async def load():
+            # 获取当前分支
+            current_branch = await self.git_service.get_current_branch(self.current_repo.id)
+            # 获取所有分支
+            branches = await self.git_service.get_branches(self.current_repo.id)
+            return {
+                "current_branch": current_branch,
+                "branches": branches
+            }
+        
+        def on_finished(result):
+            if result:
+                # 更新当前分支显示
+                self.current_branch_label.setText(result["current_branch"])
+                # 更新分支列表
+                self.branch_tree.clear()
+                for branch in result["branches"]:
+                    item = QTreeWidgetItem(self.branch_tree)
+                    branch_name = branch["name"]
+                    if branch["is_remote"]:
+                        branch_name = branch["name"].replace("remotes/", "")
+                    item.setText(0, branch_name)
+                    item.setText(1, "当前分支" if branch["current"] else "")
+                    item.setText(2, "远程" if branch["is_remote"] else "本地")
+                    item.setData(0, Qt.UserRole, branch["name"])
+                self.status_bar.showMessage("分支列表已更新")
+        
+        def on_error(err):
+            self.status_bar.showMessage(f"加载分支失败: {err}")
+        
+        worker = AsyncWorker(load)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+        self._add_worker(worker)
+        worker.start()
+    
+    def _on_branch_double_clicked(self, item: QTreeWidgetItem):
+        """双击分支事件处理"""
+        self._switch_branch()
+    
+    def _create_branch(self):
+        """创建分支"""
+        if not self.current_repo:
+            return
+        
+        branch_name = self.new_branch_edit.text().strip()
+        if not branch_name:
+            QMessageBox.warning(self, "警告", "请输入新分支名称")
+            return
+        
+        async def create():
+            return await self.git_service.create_branch(self.current_repo.id, branch_name)
+        
+        def on_finished(result):
+            QMessageBox.information(self, "成功", f"分支 '{branch_name}' 已创建")
+            self.new_branch_edit.clear()
+            self._load_branches()
+            self.status_bar.showMessage(f"分支 '{branch_name}' 已创建")
+        
+        def on_error(err):
+            QMessageBox.critical(self, "错误", f"创建分支失败: {err}")
+            self.status_bar.showMessage(f"创建分支失败: {err}")
+        
+        worker = AsyncWorker(create)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+        self._add_worker(worker)
+        worker.start()
+    
+    def _switch_branch(self):
+        """切换分支"""
+        if not self.current_repo:
+            return
+        
+        selected_items = self.branch_tree.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "警告", "请先选择一个分支")
+            return
+        
+        item = selected_items[0]
+        branch_name = item.data(0, Qt.UserRole)
+        
+        async def switch():
+            return await self.git_service.switch_branch(self.current_repo.id, branch_name)
+        
+        def on_finished(result):
+            QMessageBox.information(self, "成功", f"已切换到分支 '{branch_name}'")
+            self._load_branches()
+            self._load_repo_status()  # 切换分支后重新加载状态
+            self.status_bar.showMessage(f"已切换到分支 '{branch_name}'")
+        
+        def on_error(err):
+            QMessageBox.critical(self, "错误", f"切换分支失败: {err}")
+            self.status_bar.showMessage(f"切换分支失败: {err}")
+        
+        worker = AsyncWorker(switch)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+        self._add_worker(worker)
+        worker.start()
+    
+    def _refresh_branches(self):
+        """刷新分支列表"""
+        self._load_branches()
     
     def _update_file_tree(self, status: dict):
         self.file_tree.clear()
@@ -435,9 +665,15 @@ class MainWindow(QMainWindow):
 
 def run_gui():
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")
+    
+    # 初始化主题管理器
+    from ..utils.theme_manager import ThemeManager
+    theme_manager = ThemeManager()
+    theme_manager.initialize(app)
     
     window = MainWindow()
+    # 将主题管理器实例传递给主窗口
+    window.theme_manager = theme_manager
     window.show()
     
     sys.exit(app.exec())
