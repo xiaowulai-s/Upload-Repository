@@ -1,0 +1,42 @@
+Metadata-Version: 2.4
+Name: git-sync-tool
+Version: 1.0.0
+Summary: GitHub 仓库同步工具
+Author-email: Developer <dev@example.com>
+License: MIT
+Keywords: git,github,sync,tool
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Environment :: X11 Applications :: Qt
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Software Development :: Version Control :: Git
+Classifier: Topic :: Utilities
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: PySide6>=6.6.0
+Requires-Dist: GitPython>=3.1.40
+Requires-Dist: PyGithub>=2.1.1
+Requires-Dist: aiofiles>=23.2.1
+Requires-Dist: aiohttp>=3.9.1
+Requires-Dist: watchdog>=3.0.0
+Requires-Dist: aiosqlite>=0.19.0
+Requires-Dist: PyYAML>=6.0.1
+Requires-Dist: loguru>=0.7.2
+Requires-Dist: python-dateutil>=2.8.2
+Requires-Dist: click>=8.1.7
+Requires-Dist: rich>=13.7.0
+Requires-Dist: Jinja2>=3.1.2
+Provides-Extra: dev
+Requires-Dist: ruff>=0.1.8; extra == "dev"
+Requires-Dist: mypy>=1.7.1; extra == "dev"
+Requires-Dist: pytest>=7.4.3; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.1; extra == "dev"
+Requires-Dist: pytest-qt>=4.2.0; extra == "dev"
+Provides-Extra: build
+Requires-Dist: pyinstaller>=6.3.0; extra == "build"

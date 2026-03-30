@@ -1,0 +1,447 @@
+"""主窗口"""
+
+import sys
+import asyncio
+from pathlib import Path
+from typing import Optional, List
+from datetime import datetime
+
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QStatusBar, QTreeWidget, QTreeWidgetItem,
+    QSplitter, QTabWidget, QMessageBox, QFileDialog, QInputDialog,
+    QTextEdit, QProgressBar
+)
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QFont
+
+from ..services.repo_service import RepoService
+from ..services.git_service import GitService
+from ..models.repository import Repository, RepoStatus, SyncStatus
+
+
+class AsyncWorker(QThread):
+    finished = Signal(object)
+    error = Signal(str)
+    
+    def __init__(self, func, *args, **kwargs):
+        super().__init__()
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+        self._stop_flag = False
+    
+    def run(self):
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self.func(*self.args, **self.kwargs))
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+    
+    def stop(self):
+        self._stop_flag = True
+        self.quit()
+        self.wait()
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        
+        self.repo_service = RepoService()
+        self.git_service = GitService()
+        self.current_repo: Optional[Repository] = None
+        self._workers = []  # 用于跟踪所有运行的线程
+        
+        self._init_ui()
+        self._load_repositories()
+    
+    def closeEvent(self, event):
+        """窗口关闭时停止所有运行的线程"""
+        for worker in self._workers:
+            if worker.isRunning():
+                worker.stop()
+        event.accept()
+    
+    def _add_worker(self, worker):
+        """添加线程到跟踪列表"""
+        self._workers.append(worker)
+        worker.finished.connect(lambda: self._remove_worker(worker))
+        worker.error.connect(lambda: self._remove_worker(worker))
+    
+    def _remove_worker(self, worker):
+        """从跟踪列表中移除线程"""
+        if worker in self._workers:
+            self._workers.remove(worker)
+            worker.deleteLater()
+    
+    def _init_ui(self):
+        self.setWindowTitle("Git 同步工具")
+        self.setMinimumSize(1200, 800)
+        
+        central = QWidget()
+        self.setCentralWidget(central)
+        
+        main_layout = QHBoxLayout(central)
+        
+        splitter = QSplitter(Qt.Horizontal)
+        main_layout.addWidget(splitter)
+        
+        left_panel = self._create_left_panel()
+        splitter.addWidget(left_panel)
+        
+        right_panel = self._create_right_panel()
+        splitter.addWidget(right_panel)
+        
+        splitter.setSizes([300, 900])
+        
+        self._create_status_bar()
+    
+    def _create_left_panel(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        
+        title = QLabel("仓库列表")
+        title.setFont(QFont("Arial", 12, QFont.Bold))
+        layout.addWidget(title)
+        
+        self.repo_tree = QTreeWidget()
+        self.repo_tree.setHeaderLabels(["名称", "状态", "最后同步"])
+        self.repo_tree.itemClicked.connect(self._on_repo_selected)
+        layout.addWidget(self.repo_tree)
+        
+        btn_layout = QHBoxLayout()
+        
+        self.btn_add = QPushButton("添加")
+        self.btn_add.clicked.connect(self._add_repository)
+        btn_layout.addWidget(self.btn_add)
+        
+        self.btn_remove = QPushButton("移除")
+        self.btn_remove.clicked.connect(self._remove_repository)
+        btn_layout.addWidget(self.btn_remove)
+        
+        self.btn_refresh = QPushButton("刷新")
+        self.btn_refresh.clicked.connect(self._refresh)
+        btn_layout.addWidget(self.btn_refresh)
+        
+        layout.addLayout(btn_layout)
+        
+        return panel
+    
+    def _create_right_panel(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        
+        self.tabs = QTabWidget()
+        
+        file_tab = self._create_file_tab()
+        self.tabs.addTab(file_tab, "文件状态")
+        
+        history_tab = self._create_history_tab()
+        self.tabs.addTab(history_tab, "同步历史")
+        
+        layout.addWidget(self.tabs)
+        
+        btn_layout = QHBoxLayout()
+        
+        self.btn_pull = QPushButton("拉取")
+        self.btn_pull.clicked.connect(self._pull)
+        self.btn_pull.setEnabled(False)
+        btn_layout.addWidget(self.btn_pull)
+        
+        self.btn_push = QPushButton("推送")
+        self.btn_push.clicked.connect(self._push)
+        self.btn_push.setEnabled(False)
+        btn_layout.addWidget(self.btn_push)
+        
+        self.btn_sync = QPushButton("同步")
+        self.btn_sync.clicked.connect(self._sync)
+        self.btn_sync.setEnabled(False)
+        btn_layout.addWidget(self.btn_sync)
+        
+        self.btn_commit = QPushButton("提交")
+        self.btn_commit.clicked.connect(self._commit)
+        self.btn_commit.setEnabled(False)
+        btn_layout.addWidget(self.btn_commit)
+        
+        layout.addLayout(btn_layout)
+        
+        return panel
+    
+    def _create_file_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        label = QLabel("文件状态")
+        label.setFont(QFont("Arial", 11, QFont.Bold))
+        layout.addWidget(label)
+        
+        self.file_tree = QTreeWidget()
+        self.file_tree.setHeaderLabels(["文件", "状态"])
+        layout.addWidget(self.file_tree)
+        
+        commit_label = QLabel("提交信息:")
+        layout.addWidget(commit_label)
+        
+        self.commit_edit = QTextEdit()
+        self.commit_edit.setMaximumHeight(80)
+        self.commit_edit.setPlaceholderText("输入提交信息...")
+        layout.addWidget(self.commit_edit)
+        
+        return tab
+    
+    def _create_history_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        label = QLabel("同步历史")
+        label.setFont(QFont("Arial", 11, QFont.Bold))
+        layout.addWidget(label)
+        
+        self.history_tree = QTreeWidget()
+        self.history_tree.setHeaderLabels(["时间", "操作", "状态", "描述"])
+        layout.addWidget(self.history_tree)
+        
+        return tab
+    
+    def _create_status_bar(self):
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("就绪")
+    
+    def _load_repositories(self):
+        repos = self.repo_service.get_all_repositories()
+        self.repo_tree.clear()
+        
+        for repo in repos:
+            item = QTreeWidgetItem(self.repo_tree)
+            item.setText(0, repo.name)
+            item.setText(1, repo.status.value)
+            item.setText(2, repo.last_sync.strftime("%Y-%m-%d %H:%M") if repo.last_sync else "从未")
+            item.setData(0, Qt.UserRole, repo.id)
+    
+    def _on_repo_selected(self, item: QTreeWidgetItem):
+        repo_id = item.data(0, Qt.UserRole)
+        repos = self.repo_service.get_all_repositories()
+        self.current_repo = next((r for r in repos if r.id == repo_id), None)
+        
+        if self.current_repo:
+            self.btn_pull.setEnabled(True)
+            self.btn_push.setEnabled(True)
+            self.btn_sync.setEnabled(True)
+            self.btn_commit.setEnabled(True)
+            self._load_repo_status()
+            self._load_history()
+    
+    def _load_repo_status(self):
+        if not self.current_repo:
+            return
+        
+        async def load():
+            result = await self.repo_service.get_repo_status(self.current_repo.id)
+            return result
+        
+        def on_finished(result):
+            if result and result.get("git_status"):
+                self._update_file_tree(result["git_status"])
+            self.status_bar.showMessage("状态已更新")
+        
+        def on_error(err):
+            self.status_bar.showMessage(f"加载失败: {err}")
+        
+        worker = AsyncWorker(load)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+        self._add_worker(worker)
+        worker.start()
+    
+    def _update_file_tree(self, status: dict):
+        self.file_tree.clear()
+        
+        for f in status.get("staged", []):
+            item = QTreeWidgetItem(self.file_tree)
+            item.setText(0, f)
+            item.setText(1, "已暂存")
+        
+        for f in status.get("unstaged", []):
+            item = QTreeWidgetItem(self.file_tree)
+            item.setText(0, f)
+            item.setText(1, "已修改")
+        
+        for f in status.get("untracked", []):
+            item = QTreeWidgetItem(self.file_tree)
+            item.setText(0, f)
+            item.setText(1, "未跟踪")
+    
+    def _load_history(self):
+        if not self.current_repo:
+            return
+        
+        records = self.repo_service.get_sync_history(self.current_repo.id)
+        self.history_tree.clear()
+        
+        for r in records:
+            item = QTreeWidgetItem(self.history_tree)
+            item.setText(0, r.created_at.strftime("%Y-%m-%d %H:%M:%S"))
+            item.setText(1, r.action)
+            item.setText(2, r.status.value)
+            item.setText(3, r.message or "-")
+    
+    def _add_repository(self):
+        folder = QFileDialog.getExistingDirectory(self, "选择文件夹")
+        if not folder:
+            return
+        
+        name, ok = QInputDialog.getText(self, "仓库名称", "输入名称:", text=Path(folder).name)
+        if not ok:
+            name = Path(folder).name
+        
+        try:
+            self.repo_service.bind_local_folder(Path(folder), name)
+            self._load_repositories()
+            QMessageBox.information(self, "成功", f"已添加: {name}")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"添加失败: {e}")
+    
+    def _remove_repository(self):
+        if not self.current_repo:
+            return
+        
+        if QMessageBox.question(self, "确认", f"移除 {self.current_repo.name}?") == QMessageBox.Yes:
+            self.repo_service.remove_repository(self.current_repo.id)
+            self.current_repo = None
+            self._load_repositories()
+            self.file_tree.clear()
+            self.history_tree.clear()
+            self.btn_pull.setEnabled(False)
+            self.btn_push.setEnabled(False)
+            self.btn_sync.setEnabled(False)
+            self.btn_commit.setEnabled(False)
+    
+    def _refresh(self):
+        self._load_repositories()
+        if self.current_repo:
+            self._load_repo_status()
+            self._load_history()
+    
+    def _pull(self):
+        if not self.current_repo:
+            return
+        
+        self.status_bar.showMessage("正在拉取...")
+        
+        async def do_pull():
+            return await self.git_service.pull(self.current_repo.id)
+        
+        def on_finished(result):
+            self.status_bar.showMessage("拉取完成")
+            QMessageBox.information(self, "完成", "拉取成功")
+            self._load_repo_status()
+            self._load_history()
+        
+        def on_error(err):
+            self.status_bar.showMessage(f"拉取失败: {err}")
+            QMessageBox.critical(self, "错误", f"拉取失败: {err}")
+        
+        worker = AsyncWorker(do_pull)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+        self._add_worker(worker)
+        worker.start()
+    
+    def _push(self):
+        if not self.current_repo:
+            return
+        
+        self.status_bar.showMessage("正在推送...")
+        
+        async def do_push():
+            return await self.git_service.push(self.current_repo.id)
+        
+        def on_finished(result):
+            self.status_bar.showMessage("推送完成")
+            QMessageBox.information(self, "完成", "推送成功")
+            self._load_repo_status()
+            self._load_history()
+        
+        def on_error(err):
+            self.status_bar.showMessage(f"推送失败: {err}")
+            QMessageBox.critical(self, "错误", f"推送失败: {err}")
+        
+        worker = AsyncWorker(do_push)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+        self._add_worker(worker)
+        worker.start()
+    
+    def _sync(self):
+        if not self.current_repo:
+            return
+        
+        self.status_bar.showMessage("正在同步...")
+        
+        async def do_sync():
+            return await self.git_service.sync(self.current_repo.id)
+        
+        def on_finished(result):
+            self.status_bar.showMessage("同步完成")
+            QMessageBox.information(self, "完成", "同步成功")
+            self._load_repo_status()
+            self._load_history()
+        
+        def on_error(err):
+            self.status_bar.showMessage(f"同步失败: {err}")
+            QMessageBox.critical(self, "错误", f"同步失败: {err}")
+        
+        worker = AsyncWorker(do_sync)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+        self._add_worker(worker)
+        worker.start()
+    
+    def _commit(self):
+        if not self.current_repo:
+            return
+        
+        message = self.commit_edit.toPlainText().strip()
+        if not message:
+            QMessageBox.warning(self, "警告", "请输入提交信息")
+            return
+        
+        self.status_bar.showMessage("正在提交...")
+        
+        async def do_commit():
+            return await self.git_service.commit(self.current_repo.id, message)
+        
+        def on_finished(result):
+            self.status_bar.showMessage("提交完成")
+            self.commit_edit.clear()
+            QMessageBox.information(self, "完成", "提交成功")
+            self._load_repo_status()
+            self._load_history()
+        
+        def on_error(err):
+            self.status_bar.showMessage(f"提交失败: {err}")
+            QMessageBox.critical(self, "错误", f"提交失败: {err}")
+        
+        worker = AsyncWorker(do_commit)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+        self._add_worker(worker)
+        worker.start()
+
+
+def run_gui():
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    
+    window = MainWindow()
+    window.show()
+    
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    run_gui()

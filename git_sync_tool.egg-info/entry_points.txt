@@ -1,0 +1,5 @@
+[console_scripts]
+git-sync = src.cli.main:main
+
+[gui_scripts]
+git-sync-gui = src.ui.main_window:main
