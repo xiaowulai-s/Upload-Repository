@@ -134,7 +134,7 @@ class RepoService:
         remote_url = remote_result.data if remote_result.success else url
         
         branch_result = await git_engine.get_current_branch()
-        current_branch = branch_result.data if branch_result.success else "main"
+        current_branch = branch_result.data if branch_result.success else "master"
         
         repo = Repository.create(
             name=name,
