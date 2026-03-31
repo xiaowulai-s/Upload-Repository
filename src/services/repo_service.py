@@ -57,28 +57,74 @@ class RepoService:
         
         git_engine = GitEngine(folder_path)
         
+        branch = "master"  # 默认分支
+        
         if git_engine.is_git_repo:
             status = RepoStatus.INITIALIZED
+            
+            # 自动获取远程URL
             if remote_url is None:
                 result = asyncio.run(git_engine.get_remote_url())
                 if result.success:
                     remote_url = result.data
+            
+            # 自动获取当前分支
+            branch_result = asyncio.run(git_engine.get_current_branch())
+            if branch_result.success:
+                branch = branch_result.data
+            
+            logger.info(f"自动检测到Git仓库: {folder_path}, 分支: {branch}, 远程: {remote_url}")
         else:
             status = RepoStatus.UNINITIALIZED
+            logger.info(f"绑定非Git文件夹: {folder_path}")
         
         repo = Repository.create(
             name=name,
             local_path=str(folder_path),
             remote_url=remote_url,
-            status=status
+            status=status,
+            branch=branch
         )
         
         self.db.insert_repository(repo)
         
-        logger.info(f"Successfully bound folder {folder_path} to repository {repo.id}")
-        logger_instance.audit(user="system", action="bind_folder", repo_id=repo.id, details=f"name: {name}, path: {folder_path}")
+        logger.info(f"成功绑定文件夹 {folder_path} 到仓库 {repo.id}")
+        logger_instance.audit(user="system", action="bind_folder", repo_id=repo.id, details=f"name: {name}, path: {folder_path}, branch: {branch}, remote: {remote_url}")
         
         return repo
+    
+    def auto_detect_repositories(
+        self, 
+        parent_path: Path, 
+        recursive: bool = True
+    ) -> List[Repository]:
+        """自动检测指定目录下的所有Git仓库并绑定"""
+        parent_path = Path(parent_path)
+        logger.info(f"自动检测目录 {parent_path} 下的Git仓库")
+        
+        bound_repos = []
+        
+        def _detect_in_dir(dir_path: Path):
+            """递归检测目录下的Git仓库"""
+            for child in dir_path.iterdir():
+                if child.is_dir():
+                    git_dir = child / ".git"
+                    if git_dir.exists() and git_dir.is_dir():
+                        # 检测到Git仓库
+                        try:
+                            repo = self.bind_local_folder(child)
+                            bound_repos.append(repo)
+                            logger.info(f"自动绑定Git仓库: {child}")
+                        except Exception as e:
+                            logger.warning(f"无法绑定Git仓库 {child}: {e}")
+                    elif recursive:
+                        # 递归检测子目录
+                        _detect_in_dir(child)
+        
+        _detect_in_dir(parent_path)
+        
+        logger.info(f"自动检测完成，共绑定 {len(bound_repos)} 个Git仓库")
+        return bound_repos
 
     async def init_repository(self, repo_id: str) -> Result:
         logger.debug(f"Initializing repository {repo_id}")

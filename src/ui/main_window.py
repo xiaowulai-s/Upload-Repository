@@ -87,6 +87,25 @@ class MainWindow(QMainWindow):
             self._workers.remove(worker)
             worker.deleteLater()
     
+    def _get_status_icon(self, status: str):
+        """获取状态图标"""
+        from PySide6.QtGui import QPixmap
+        
+        # 使用简单的文字图标作为占位符
+        # 在实际应用中，可以替换为真实的图标文件
+        if status == "synced":
+            # 绿色对勾
+            return QPixmap()
+        elif status == "conflict":
+            # 红色冲突图标
+            return QPixmap()
+        elif status == "initialized":
+            # 蓝色初始化图标
+            return QPixmap()
+        else:
+            # 灰色未初始化图标
+            return QPixmap()
+    
     def _init_ui(self):
         self.setWindowTitle("Git 同步工具")
         self.setMinimumSize(1200, 800)
@@ -196,47 +215,64 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(12)
         
-        self.tabs = QTabWidget()
-        
-        file_tab = self._create_file_tab()
-        self.tabs.addTab(file_tab, "文件状态")
-        
-        branch_tab = self._create_branch_tab()  # 添加分支管理标签页
-        self.tabs.addTab(branch_tab, "分支管理")
-        
-        history_tab = self._create_history_tab()
-        self.tabs.addTab(history_tab, "同步历史")
-        
-        layout.addWidget(self.tabs)
-        
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(10)
+        # 创建统一的操作工具栏
+        toolbar_layout = QHBoxLayout()
+        toolbar_layout.setSpacing(10)
+        toolbar_layout.setObjectName("toolbar")
         
         self.btn_pull = QPushButton("拉取")
         self.btn_pull.setObjectName("secondary")
         self.btn_pull.clicked.connect(self._pull)
         self.btn_pull.setEnabled(False)
-        btn_layout.addWidget(self.btn_pull)
+        toolbar_layout.addWidget(self.btn_pull)
         
         self.btn_push = QPushButton("推送")
         self.btn_push.setObjectName("primary")
         self.btn_push.clicked.connect(self._push)
         self.btn_push.setEnabled(False)
-        btn_layout.addWidget(self.btn_push)
+        toolbar_layout.addWidget(self.btn_push)
         
         self.btn_sync = QPushButton("同步")
         self.btn_sync.setObjectName("success")
         self.btn_sync.clicked.connect(self._sync)
         self.btn_sync.setEnabled(False)
-        btn_layout.addWidget(self.btn_sync)
+        toolbar_layout.addWidget(self.btn_sync)
         
         self.btn_commit = QPushButton("提交")
         self.btn_commit.setObjectName("secondary")
         self.btn_commit.clicked.connect(self._commit)
         self.btn_commit.setEnabled(False)
-        btn_layout.addWidget(self.btn_commit)
+        toolbar_layout.addWidget(self.btn_commit)
         
-        layout.addLayout(btn_layout)
+        toolbar_layout.addStretch()
+        
+        # 添加自动同步开关
+        auto_sync_layout = QHBoxLayout()
+        auto_sync_label = QLabel("自动同步:")
+        self.auto_sync_switch = QPushButton("开启")
+        self.auto_sync_switch.setObjectName("secondary")
+        self.auto_sync_switch.clicked.connect(self._toggle_auto_sync)
+        auto_sync_layout.addWidget(auto_sync_label)
+        auto_sync_layout.addWidget(self.auto_sync_switch)
+        toolbar_layout.addLayout(auto_sync_layout)
+        
+        layout.addLayout(toolbar_layout)
+        
+        self.tabs = QTabWidget()
+        
+        # 文件状态标签页 - 整合常用的文件操作
+        file_tab = self._create_file_tab()
+        self.tabs.addTab(file_tab, "文件状态")
+        
+        # 分支管理标签页
+        branch_tab = self._create_branch_tab()
+        self.tabs.addTab(branch_tab, "分支管理")
+        
+        # 同步历史标签页
+        history_tab = self._create_history_tab()
+        self.tabs.addTab(history_tab, "同步历史")
+        
+        layout.addWidget(self.tabs)
         
         return panel
     
@@ -377,9 +413,34 @@ class MainWindow(QMainWindow):
         for repo in repos:
             item = QTreeWidgetItem(self.repo_tree)
             item.setText(0, repo.name)
-            item.setText(1, repo.status.value)
-            item.setText(2, repo.last_sync.strftime("%Y-%m-%d %H:%M") if repo.last_sync else "从未")
+            
+            # 状态显示优化，使用颜色和图标增强视觉反馈
+            status = repo.status.value
+            if repo.status == RepoStatus.SYNCED:
+                status_text = f"<span style='color: green; font-weight: bold;'>{status}</span>"
+            elif repo.status == RepoStatus.CONFLICT:
+                status_text = f"<span style='color: red; font-weight: bold;'>{status}</span>"
+            elif repo.status == RepoStatus.INITIALIZED:
+                status_text = f"<span style='color: blue; font-weight: bold;'>{status}</span>"
+            else:
+                status_text = f"<span style='color: gray;'>{status}</span>"
+            
+            item.setText(1, status)
+            item.setToolTip(1, f"状态: {status}")
+            
+            last_sync = repo.last_sync.strftime("%Y-%m-%d %H:%M") if repo.last_sync else "从未"
+            item.setText(2, last_sync)
             item.setData(0, Qt.UserRole, repo.id)
+            
+            # 添加图标
+            if repo.status == RepoStatus.SYNCED:
+                item.setIcon(1, self._get_status_icon("synced"))
+            elif repo.status == RepoStatus.CONFLICT:
+                item.setIcon(1, self._get_status_icon("conflict"))
+            elif repo.status == RepoStatus.INITIALIZED:
+                item.setIcon(1, self._get_status_icon("initialized"))
+            else:
+                item.setIcon(1, self._get_status_icon("uninitialized"))
     
     def _on_repo_selected(self, item: QTreeWidgetItem):
         repo_id = item.data(0, Qt.UserRole)
@@ -601,6 +662,21 @@ class MainWindow(QMainWindow):
             self._load_repo_status()
             self._load_history()
     
+    def _toggle_auto_sync(self):
+        """切换自动同步状态"""
+        if self.auto_sync_switch.text() == "开启":
+            # 开启自动同步
+            self.auto_sync_switch.setText("关闭")
+            self.auto_sync_switch.setObjectName("success")
+            self.schedule_service.start_auto_sync()
+            self.status_bar.showMessage("自动同步已开启")
+        else:
+            # 关闭自动同步
+            self.auto_sync_switch.setText("开启")
+            self.auto_sync_switch.setObjectName("secondary")
+            self.schedule_service.stop_auto_sync()
+            self.status_bar.showMessage("自动同步已关闭")
+    
     def _pull(self):
         if not self.current_repo:
             return
@@ -681,9 +757,6 @@ class MainWindow(QMainWindow):
             return
         
         message = self.commit_edit.toPlainText().strip()
-        if not message:
-            QMessageBox.warning(self, "警告", "请输入提交信息")
-            return
         
         self.status_bar.showMessage("正在提交...")
         

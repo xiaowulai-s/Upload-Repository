@@ -117,7 +117,7 @@ class GitService:
     async def commit(
         self, 
         repo_id: str, 
-        message: str,
+        message: Optional[str] = None,
         files: Optional[List[str]] = None,
         author: Optional[str] = None
     ) -> SyncRecord:
@@ -135,6 +135,17 @@ class GitService:
             action="commit",
             status=SyncStatus.SYNCING
         )
+        
+        # 自动生成提交信息
+        if not message or not message.strip():
+            status_result = await git_engine.get_status()
+            if status_result.success:
+                status = status_result.data
+                # 根据文件变化自动生成提交信息
+                changed_files = len(status.staged) + len(status.unstaged)
+                message = f"Auto commit: {changed_files} file(s) changed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            else:
+                message = f"Auto commit at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
         if files:
             add_result = await git_engine.add(files)
@@ -167,8 +178,10 @@ class GitService:
         self, 
         repo_id: str,
         commit_message: Optional[str] = None,
-        auto_commit: bool = True
+        auto_commit: bool = True,
+        retry_count: int = 1
     ) -> SyncRecord:
+        """同步仓库，包含自动拉取、自动提交和自动推送"""
         repo = self.db.get_repository(repo_id)
         if not repo:
             raise RepositoryNotFoundError(f"仓库不存在: {repo_id}")
@@ -185,46 +198,77 @@ class GitService:
         )
         
         try:
-            pull_result = await git_engine.pull()
-            
-            if not pull_result.success:
-                if "CONFLICT" in (pull_result.error or ""):
+            # 1. 拉取远程代码，带重试机制
+            pull_result = None
+            for attempt in range(retry_count + 1):
+                pull_result = await git_engine.pull()
+                if pull_result.success:
+                    break
+                elif "CONFLICT" in (pull_result.error or ""):
+                    # 冲突情况，不重试
                     record.status = SyncStatus.CONFLICT
-                    record.message = pull_result.error
+                    record.message = f"合并冲突: {pull_result.error}"
                     self.db.insert_sync_record(record)
                     raise ConflictError(pull_result.error)
+                elif attempt < retry_count:
+                    # 临时网络问题，重试
+                    logger.warning(f"拉取失败，{attempt + 1}秒后重试: {pull_result.error}")
+                    await asyncio.sleep(1)
             
+            if not pull_result.success:
+                record.status = SyncStatus.ERROR
+                record.message = f"拉取失败: {pull_result.error}"
+                self.db.insert_sync_record(record)
+                raise GitOperationError(pull_result.error)
+            
+            # 2. 检查本地状态
             status_result = await git_engine.get_status()
             
             if status_result.success:
                 status: GitStatus = status_result.data
                 
                 if status.has_changes and auto_commit:
-                    message = commit_message or f"Auto sync: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    # 3. 自动生成智能提交信息
+                    if not commit_message or not commit_message.strip():
+                        changed_files = len(status.staged) + len(status.unstaged)
+                        if status.untracked:
+                            changed_files += len(status.untracked)
+                        commit_message = f"Auto sync: {changed_files} file(s) changed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     
-                    commit_result = await git_engine.commit(message)
+                    # 4. 自动提交
+                    commit_result = await git_engine.commit(commit_message)
                     
                     if not commit_result.success:
                         record.status = SyncStatus.ERROR
-                        record.message = commit_result.error
+                        record.message = f"提交失败: {commit_result.error}"
                         self.db.insert_sync_record(record)
                         raise GitOperationError(commit_result.error)
                     
-                    push_result = await git_engine.push()
+                    # 5. 自动推送
+                    push_result = None
+                    for attempt in range(retry_count + 1):
+                        push_result = await git_engine.push()
+                        if push_result.success:
+                            break
+                        elif attempt < retry_count:
+                            # 临时网络问题，重试
+                            logger.warning(f"推送失败，{attempt + 1}秒后重试: {push_result.error}")
+                            await asyncio.sleep(1)
                     
                     if not push_result.success:
                         record.status = SyncStatus.ERROR
-                        record.message = push_result.error
+                        record.message = f"推送失败: {push_result.error}"
                         self.db.insert_sync_record(record)
                         raise GitOperationError(push_result.error)
                     
                     record.files_count = len(status.staged) + len(status.unstaged) + len(status.untracked)
             
             record.status = SyncStatus.SUCCESS
-            record.message = "Sync completed"
+            record.message = "同步完成"
             record.duration = time.time() - start_time
             
             repo.last_sync = datetime.now()
+            repo.status = RepoStatus.SYNCED
             self.db.update_repository(repo)
             
         except Exception as e:
