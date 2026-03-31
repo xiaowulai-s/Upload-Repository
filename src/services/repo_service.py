@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime
 import shutil
 
-from ..utils.logger import logger
+from ..utils.logger import logger, logger_instance
 from ..models.repository import Repository, RepoStatus, SyncRecord, SyncStatus
 from ..data.database import Database
 from ..data.config_manager import ConfigManager
@@ -76,7 +76,7 @@ class RepoService:
         self.db.insert_repository(repo)
         
         logger.info(f"Successfully bound folder {folder_path} to repository {repo.id}")
-        logger.audit(user="system", action="bind_folder", repo_id=repo.id, details=f"name: {name}, path: {folder_path}")
+        logger_instance.audit(user="system", action="bind_folder", repo_id=repo.id, details=f"name: {name}, path: {folder_path}")
         
         return repo
 
@@ -100,7 +100,7 @@ class RepoService:
             self.db.update_repository(repo)
             self._git_engines[repo_id] = git_engine
             logger.info(f"Successfully initialized repository {repo_id}")
-            logger.audit(user="system", action="init_repository", repo_id=repo_id, details="Repository initialized")
+            logger_instance.audit(user="system", action="init_repository", repo_id=repo_id, details="Repository initialized")
         else:
             logger.error(f"Failed to initialize repository {repo_id}: {result.error}")
         
@@ -148,7 +148,7 @@ class RepoService:
         self._git_engines[repo.id] = git_engine
         
         logger.info(f"Successfully cloned repository from {url} to {target_path}, repository ID: {repo.id}")
-        logger.audit(user="system", action="clone_repository", repo_id=repo.id, details=f"url: {url}, branch: {branch}")
+        logger_instance.audit(user="system", action="clone_repository", repo_id=repo.id, details=f"url: {url}, branch: {branch}")
         
         return repo
 
@@ -177,7 +177,7 @@ class RepoService:
         result = self.db.delete_repository(repo_id)
         if result:
             logger.info(f"Successfully removed repository {repo_id}")
-            logger.audit(user="system", action="remove_repository", repo_id=repo_id, details=f"delete_local: {delete_local}")
+            logger_instance.audit(user="system", action="remove_repository", repo_id=repo_id, details=f"delete_local: {delete_local}")
         else:
             logger.error(f"Failed to remove repository {repo_id} from database")
         

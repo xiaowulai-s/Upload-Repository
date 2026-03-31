@@ -57,7 +57,7 @@ class Logger:
         logger.add(
             str(self._log_dir / "audit.log"),
             level="INFO",
-            format=audit_format,
+            format="{time:YYYY-MM-DD HH:mm:ss} | AUDIT | {extra[user]} | {extra[action]} | {extra[repo_id]} | {extra[details]}",
             rotation="1 day",
             retention="6 months",
             compression="zip",
