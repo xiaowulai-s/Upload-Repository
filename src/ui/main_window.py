@@ -152,27 +152,37 @@ class MainWindow(QMainWindow):
     def _create_left_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
         
         title = QLabel("仓库列表")
-        title.setFont(QFont("Arial", 12, QFont.Bold))
+        title.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        title.setStyleSheet("margin-bottom: 8px; color: #333333;")
         layout.addWidget(title)
         
         self.repo_tree = QTreeWidget()
         self.repo_tree.setHeaderLabels(["名称", "状态", "最后同步"])
+        self.repo_tree.setIndentation(15)
+        self.repo_tree.setMinimumHeight(300)
+        self.repo_tree.setAlternatingRowColors(True)
         self.repo_tree.itemClicked.connect(self._on_repo_selected)
         layout.addWidget(self.repo_tree)
         
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
         
         self.btn_add = QPushButton("添加")
+        self.btn_add.setObjectName("primary")
         self.btn_add.clicked.connect(self._add_repository)
         btn_layout.addWidget(self.btn_add)
         
         self.btn_remove = QPushButton("移除")
+        self.btn_remove.setObjectName("danger")
         self.btn_remove.clicked.connect(self._remove_repository)
         btn_layout.addWidget(self.btn_remove)
         
         self.btn_refresh = QPushButton("刷新")
+        self.btn_refresh.setObjectName("secondary")
         self.btn_refresh.clicked.connect(self._refresh)
         btn_layout.addWidget(self.btn_refresh)
         
@@ -183,6 +193,8 @@ class MainWindow(QMainWindow):
     def _create_right_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
         
         self.tabs = QTabWidget()
         
@@ -198,23 +210,28 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.tabs)
         
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
         
         self.btn_pull = QPushButton("拉取")
+        self.btn_pull.setObjectName("secondary")
         self.btn_pull.clicked.connect(self._pull)
         self.btn_pull.setEnabled(False)
         btn_layout.addWidget(self.btn_pull)
         
         self.btn_push = QPushButton("推送")
+        self.btn_push.setObjectName("primary")
         self.btn_push.clicked.connect(self._push)
         self.btn_push.setEnabled(False)
         btn_layout.addWidget(self.btn_push)
         
         self.btn_sync = QPushButton("同步")
+        self.btn_sync.setObjectName("success")
         self.btn_sync.clicked.connect(self._sync)
         self.btn_sync.setEnabled(False)
         btn_layout.addWidget(self.btn_sync)
         
         self.btn_commit = QPushButton("提交")
+        self.btn_commit.setObjectName("secondary")
         self.btn_commit.clicked.connect(self._commit)
         self.btn_commit.setEnabled(False)
         btn_layout.addWidget(self.btn_commit)
@@ -226,20 +243,27 @@ class MainWindow(QMainWindow):
     def _create_file_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
         
         label = QLabel("文件状态")
-        label.setFont(QFont("Arial", 11, QFont.Bold))
+        label.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        label.setStyleSheet("color: #333333;")
         layout.addWidget(label)
         
         self.file_tree = QTreeWidget()
         self.file_tree.setHeaderLabels(["文件", "状态"])
+        self.file_tree.setIndentation(15)
+        self.file_tree.setMinimumHeight(200)
+        self.file_tree.setAlternatingRowColors(True)
         layout.addWidget(self.file_tree)
         
         commit_label = QLabel("提交信息:")
+        commit_label.setStyleSheet("font-weight: bold; color: #333333;")
         layout.addWidget(commit_label)
         
         self.commit_edit = QTextEdit()
-        self.commit_edit.setMaximumHeight(80)
+        self.commit_edit.setMaximumHeight(100)
         self.commit_edit.setPlaceholderText("输入提交信息...")
         layout.addWidget(self.commit_edit)
         
@@ -248,13 +272,19 @@ class MainWindow(QMainWindow):
     def _create_history_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
         
         label = QLabel("同步历史")
-        label.setFont(QFont("Arial", 11, QFont.Bold))
+        label.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        label.setStyleSheet("color: #333333;")
         layout.addWidget(label)
         
         self.history_tree = QTreeWidget()
         self.history_tree.setHeaderLabels(["时间", "操作", "状态", "描述"])
+        self.history_tree.setIndentation(15)
+        self.history_tree.setMinimumHeight(300)
+        self.history_tree.setAlternatingRowColors(True)
         layout.addWidget(self.history_tree)
         
         return tab
@@ -263,32 +293,42 @@ class MainWindow(QMainWindow):
         """创建分支管理标签页"""
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
         
         # 标题
         label = QLabel("分支管理")
-        label.setFont(QFont("Arial", 11, QFont.Bold))
+        label.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        label.setStyleSheet("color: #333333;")
         layout.addWidget(label)
         
         # 分支列表
         self.branch_tree = QTreeWidget()
         self.branch_tree.setHeaderLabels(["分支名称", "状态", "类型"])
+        self.branch_tree.setIndentation(15)
+        self.branch_tree.setMinimumHeight(200)
+        self.branch_tree.setAlternatingRowColors(True)
         self.branch_tree.itemDoubleClicked.connect(self._on_branch_double_clicked)
         layout.addWidget(self.branch_tree)
         
         # 当前分支信息
         branch_info_layout = QHBoxLayout()
+        branch_info_layout.setSpacing(10)
         branch_info_label = QLabel("当前分支:")
+        branch_info_label.setStyleSheet("font-weight: bold; color: #333333;")
         branch_info_layout.addWidget(branch_info_label)
         
-        self.current_branch_label = QLabel("- 未选择 -", styleSheet="font-weight: bold;")
+        self.current_branch_label = QLabel("- 未选择 -", styleSheet="font-weight: bold; color: #333333;")
         branch_info_layout.addWidget(self.current_branch_label)
         branch_info_layout.addStretch()
         layout.addLayout(branch_info_layout)
         
         # 创建分支区域
         create_branch_layout = QHBoxLayout()
+        create_branch_layout.setSpacing(10)
         
         branch_name_label = QLabel("新分支名称:")
+        branch_name_label.setStyleSheet("color: #333333;")
         create_branch_layout.addWidget(branch_name_label)
         
         self.new_branch_edit = QLineEdit()
@@ -296,6 +336,7 @@ class MainWindow(QMainWindow):
         create_branch_layout.addWidget(self.new_branch_edit)
         
         self.btn_create_branch = QPushButton("创建分支")
+        self.btn_create_branch.setObjectName("success")
         self.btn_create_branch.clicked.connect(self._create_branch)
         self.btn_create_branch.setEnabled(False)
         create_branch_layout.addWidget(self.btn_create_branch)
@@ -304,13 +345,16 @@ class MainWindow(QMainWindow):
         
         # 操作按钮
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
         
         self.btn_switch_branch = QPushButton("切换分支")
+        self.btn_switch_branch.setObjectName("primary")
         self.btn_switch_branch.clicked.connect(self._switch_branch)
         self.btn_switch_branch.setEnabled(False)
         btn_layout.addWidget(self.btn_switch_branch)
         
         self.btn_refresh_branches = QPushButton("刷新分支")
+        self.btn_refresh_branches.setObjectName("secondary")
         self.btn_refresh_branches.clicked.connect(self._refresh_branches)
         self.btn_refresh_branches.setEnabled(False)
         btn_layout.addWidget(self.btn_refresh_branches)
@@ -324,6 +368,7 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("就绪")
+        self.status_bar.setStyleSheet("color: #333333;")
     
     def _load_repositories(self):
         repos = self.repo_service.get_all_repositories()

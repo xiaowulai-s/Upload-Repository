@@ -31,6 +31,7 @@ class AddRepoDialog(QDialog):
         folder_layout.addWidget(self.folder_edit)
         
         self.btn_browse = QPushButton("浏览...")
+        self.btn_browse.setObjectName("secondary")
         self.btn_browse.clicked.connect(self._browse_folder)
         folder_layout.addWidget(self.btn_browse)
         
@@ -49,10 +50,12 @@ class AddRepoDialog(QDialog):
         button_layout = QHBoxLayout()
         
         self.btn_ok = QPushButton("确定")
+        self.btn_ok.setObjectName("primary")
         self.btn_ok.clicked.connect(self.accept)
         button_layout.addWidget(self.btn_ok)
         
         self.btn_cancel = QPushButton("取消")
+        self.btn_cancel.setObjectName("secondary")
         self.btn_cancel.clicked.connect(self.reject)
         button_layout.addWidget(self.btn_cancel)
         
