@@ -46,25 +46,31 @@ pip install -r requirements.txt
 
 ### GUI Mode
 ```bash
-python -m src.ui.main
+python -m src.main
 ```
 
 ### CLI Mode
 ```bash
 # Show help
-python -m src.cli --help
+python -m src.main --help
 
 # Bind a local folder to a repository
-python -m src.cli bind --folder /path/to/folder --remote https://github.com/user/repo.git
+python -m src.main bind --folder /path/to/folder --remote https://github.com/user/repo.git
 
 # Pull changes from remote
-python -m src.cli pull --repo-id <repo-id>
+python -m src.main pull <repo-id>
 
 # Push changes to remote
-python -m src.cli push --repo-id <repo-id> --message "Your commit message"
+python -m src.main push <repo-id> --message "Your commit message"
+
+# Commit changes
+python -m src.main commit <repo-id> --message "Your commit message"
+
+# Synchronize repository (pull + commit + push)
+python -m src.main sync <repo-id>
 
 # Generate changelog
-python -m src.cli changelog --repo-id <repo-id>
+python -m src.main changelog <repo-id>
 ```
 
 ## Project Structure
@@ -74,17 +80,22 @@ python -m src.cli changelog --repo-id <repo-id>
 ├── src/
 │   ├── cli/                  # Command-line interface
 │   ├── core/                 # Core functionality (Git engine, log generation)
-│   ├── data/                 # Data layer (database, models)
+│   ├── data/                 # Data layer (database, config management)
+│   ├── models/               # Data models definition
 │   ├── services/             # Business logic services
-│   └── ui/                   # GUI implementation
+│   ├── ui/                   # GUI implementation with dialogs
+│   └── utils/                # Utility functions and helpers
 ├── tests/                    # Test suite
+├── pyproject.toml            # Project configuration
 ├── requirements.txt          # Project dependencies
 └── README.md                 # This file
 ```
 
 ## Configuration
 
-The tool uses SQLite database to store repository configurations. The database file is automatically created at `~/.github_sync_tool.db`.
+The tool uses SQLite database to store repository configurations and JSON files for application settings. 
+- Database file: `~/.git-sync-tool/repositories.db`
+- Config files: `~/.git-sync-tool/config.<env>.json` (default: config.default.json)
 
 ## Logging
 
